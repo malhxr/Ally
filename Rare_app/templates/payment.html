@@ -1,0 +1,202 @@
+{% load static %}
+{% load qr_code %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="">
+  <meta name="author" content="">
+  <link
+    href="https://fonts.googleapis.com/css?family=Roboto:100,100i,300,300i,400,400i,500,500i,700,700i,900,900i&display=swap"
+    rel="stylesheet">
+
+  <title>Ally. | Payment</title>
+
+  <!-- Bootstrap core CSS -->
+  <link href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.1/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-F3w7mX95PdgyTmZZMECAngseQB83DfGTowi0iMjiWaeVhAn4FJkqJByhZMI3AhiU" crossorigin="anonymous">
+
+  <!-- Additional CSS Files -->
+  <link rel="stylesheet" href="{% static 'assets/css/fontawesome.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/templatemo-stand-blog.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/owl.css' %}">
+  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+  
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <!-- Web3.js -->
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
+</head>
+
+<body>
+
+  <!-- ***** Preloader Start ***** -->
+  <div id="preloader">
+    <div class="jumper">
+      <div></div>
+      <div></div>
+      <div></div>
+    </div>
+  </div>
+  <!-- ***** Preloader End ***** -->
+
+  <!-- Page Content -->
+  <!-- Banner Starts Here -->
+  <div class="heading-page header-text">
+    <section class="page-heading">
+      <div class="container">
+        <div class="row">
+          <div class="col-6 col-lg-8">
+            <div class="text-content">
+              <h4>Ally.</h4>
+              <h2>payment</h2>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- Banner Ends Here -->
+
+  <section class="contact-us">
+    <div class="container">
+      <div class="row" style="padding-top: 1%;">
+        <div class="col-md-6">
+          <h2>Pay with Ethereum</h2>
+          <img src="data:image/png;base64,{{ qr_image }}" alt="Payment QR Code" class="img-fluid">
+          <p class="mt-3">Scan this QR code with MetaMask to pay</p>
+        </div>
+        <div class="col-md-6">
+          <h3>Order Details</h3>
+          <p>Order ID: {{ order.id }}</p>
+          <p>Receiver: {{ order.receiver.get_full_name }}</p>
+          <p>Amount: {{ order.amount }} ETH</p>
+          <p>Status: {{ order.status }}</p>
+          <button id="payButton" class="btn btn-primary">Pay with MetaMask</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="col-lg-12">
+      <div class="copyright-text">
+        <p>Copyright 2023 Ally. Co.
+          | Credits <a rel="nofollow" href="{% url 'home' %}" target="_parent">Ally.</a></p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Bootstrap core JavaScript -->
+  <script src="{% static 'vendor/jquery/jquery.min.js' %}"></script>
+  <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+
+  <!-- Additional Scripts -->
+  <script src="{% static 'assets/js/custom.js' %}"></script>
+  <script src="{% static 'assets/js/owl.js' %}"></script>
+  <script src="{% static 'assets/js/slick.js' %}"></script>
+  <script src="{% static 'assets/js/isotope.js' %}"></script>
+  <script src="{% static 'assets/js/accordions.js' %}"></script>
+
+<script>
+    document.getElementById('payButton').addEventListener('click', async () => {
+        if (typeof window.ethereum !== 'undefined') {
+            const web3 = new Web3(window.ethereum);
+            try {
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const accounts = await web3.eth.getAccounts();
+                const fromAddress = accounts[0];
+                
+                // Get transaction data from the server
+                const response = await fetch('{% url "process_payment" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({
+                        from_address: fromAddress,
+                        amount: '{{ order.amount }}',
+                        id: '{{ id }}'
+                    })
+                });
+      
+                const result = await response.json();
+                if (result.status === 'pending') {
+                    // Ensure all values in tx_data are strings
+                    const tx_data = Object.fromEntries(
+                        Object.entries(result.tx_data).map(([key, value]) => [key, String(value)])
+                    );
+                    
+                    // Send transaction using MetaMask
+                    const txHash = await web3.eth.sendTransaction(tx_data);
+                    
+                    // Confirm payment with the server
+                    const confirmResponse = await fetch('{% url "confirm_payment" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            tx_hash: txHash.transactionHash,  // Ensure this is correct
+                            order_id: result.order_id
+                        })
+                    });
+                    
+                    const confirmResult = await confirmResponse.json();
+                    if (confirmResult.status === 'success') {
+                        Swal.fire({
+                            title: 'Success!',
+                            text: 'Payment successful! Transaction hash: ' + confirmResult.tx_hash,
+                            icon: 'success',
+                            confirmButtonText: 'OK'
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                window.location.href = '{% url "home" %}';
+                            }
+                        });
+                    } else {
+                        throw new Error(confirmResult.message);
+                    }
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error(error);
+                Swal.fire({
+                    title: 'Error!',
+                    text: 'An error occurred: ' + error.message,
+                    icon: 'error',
+                    confirmButtonText: 'OK'
+                });
+            }
+        } else {
+            Swal.fire({
+                title: 'MetaMask Required',
+                text: 'Please install MetaMask to make a payment',
+                icon: 'warning',
+                confirmButtonText: 'OK'
+            });
+        }
+    });
+</script>
+
+  <script language="text/Javascript">
+    cleared[0] = cleared[1] = cleared[2] = 0; //set a cleared flag for each field
+    function clearField(t) {                   //declaring the array outside of the
+      if (!cleared[t.id]) {                      // function makes it static and global
+        cleared[t.id] = 1;  // you could use true and false, but that's more typing
+        t.value = '';         // with more chance of typos
+        t.style.color = '#fff';
+      }
+    }
+  </script>
+
+</body>
+
+</html>
